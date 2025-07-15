@@ -33,8 +33,8 @@ Stay informed on top movers, droppers, and key market trends — all fully autom
 
 ## 📣 Stay Connected
 
-- [Read on Medium](https://upandtothewrite.medium.com/)
-- [Find Me on LinkedIn](https://www.linkedin.com/in/chrisadan/)
+[![Read on Medium](https://img.shields.io/badge/Read%20on-Medium-black?logo=medium)](https://medium.com/)
+[![Find Me on LinkedIn](https://img.shields.io/badge/Connect-LinkedIn-blue?logo=linkedin)](https://www.linkedin.com/)
 
 ---
 
@@ -52,5 +52,3 @@ Stay informed on top movers, droppers, and key market trends — all fully autom
 **Mailchimp** — Email marketing tool for managing subscribers and newsletters.
 
 ---
-
-```
