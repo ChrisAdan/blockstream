@@ -17,7 +17,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: blockstream-duckdb
-          path: data
+          path: scripts/data
         continue-on-error: true # First run may not have artifact, so don’t fail
 
       - name: Set up Python 3.11
