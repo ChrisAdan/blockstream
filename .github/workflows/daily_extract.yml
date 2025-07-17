@@ -3,6 +3,7 @@ name: Daily Binance.US Extraction
 on:
   schedule:
     - cron: "0 0 * * *" # Runs daily at midnight UTC
+  workflow_dispatch:
 
 jobs:
   extract:
