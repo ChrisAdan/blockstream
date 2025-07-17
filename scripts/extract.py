@@ -97,7 +97,7 @@ def main():
     date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     print(f"Starting extraction for date: {date_str}")
 
-    if exists_for_date("./data/blockstream.duckdb", date_str):
+    if exists_for_date("scripts/data/blockstream.duckdb", date_str):
         print(f"Data for {date_str} already exists, skipping extraction.")
         return
 
