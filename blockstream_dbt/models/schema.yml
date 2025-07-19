@@ -1,0 +1,117 @@
+version: 2
+
+models:
+  - name: stg_binance_us_24hr_ticker
+    description: >
+      Unpacked 24hr ticker data from Binance.US API. Each record represents one symbol's daily price metrics.
+    columns:
+      - name: record_date
+        description: Date identifier used in the raw table (source file ID or extraction date)
+        tests:
+          - not_null
+
+      - name: symbol
+        description: Trading pair symbol (e.g., BTCUSD)
+        tests:
+          - not_null
+          - unique
+
+      - name: price_change
+        description: Absolute price change in the last 24 hours
+        tests:
+          - not_null
+
+      - name: price_change_percent
+        description: Percent price change over 24 hours
+        tests:
+          - not_null
+
+      - name: weighted_avg_price
+        description: Weighted average price over 24 hours
+        tests:
+          - not_null
+
+      - name: prev_close_price
+        description: Closing price 24 hours ago
+        tests:
+          - not_null
+
+      - name: last_price
+        description: Most recent trade price
+        tests:
+          - not_null
+
+      - name: last_qty
+        description: Quantity of most recent trade
+        tests:
+          - not_null
+
+      - name: bid_price
+        description: Current highest bid
+        tests:
+          - not_null
+
+      - name: bid_qty
+        description: Bid quantity at best price
+        tests:
+          - not_null
+
+      - name: ask_price
+        description: Current lowest ask
+        tests:
+          - not_null
+
+      - name: ask_qty
+        description: Ask quantity at lowest ask price
+        tests:
+          - not_null
+
+      - name: open_price
+        description: Opening price for the 24hr window
+        tests:
+          - not_null
+
+      - name: high_price
+        description: Highest price during the 24hr window
+        tests:
+          - not_null
+
+      - name: low_price
+        description: Lowest price during the 24hr window
+        tests:
+          - not_null
+
+      - name: volume
+        description: Total volume traded in base asset
+        tests:
+          - not_null
+
+      - name: quote_volume
+        description: Total volume traded in quote asset
+        tests:
+          - not_null
+
+      - name: open_time_utc
+        description: UTC timestamp when 24hr window opened
+        tests:
+          - not_null
+
+      - name: close_time_utc
+        description: UTC timestamp when 24hr window closed
+        tests:
+          - not_null
+
+      - name: first_trade_id
+        description: First trade ID in the 24hr window
+        tests:
+          - not_null
+
+      - name: last_trade_id
+        description: Last trade ID in the 24hr window
+        tests:
+          - not_null
+
+      - name: trade_count
+        description: Number of trades in the 24hr window
+        tests:
+          - not_null

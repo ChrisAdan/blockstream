@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: raw
+    database: blockstream
+    schema: raw
+    tables:
+      - name: raw_binance_us_24hr_ticker
