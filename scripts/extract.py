@@ -1,8 +1,10 @@
 import requests
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import duckdb
+import time
+import random
 
 def exists_for_date(duckdb_path, id):
     """
@@ -33,6 +35,19 @@ def fetch_binance_24hr_ticker():
         Exception: If the API request fails or returns a non-200 status code.
     """
     url = "https://api.binance.us/api/v3/ticker/24hr"
+    retries = 3
+    for i in range(retries):
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 429:
+            wait = (2 ** i) + random.uniform(0, 1)
+            print(f"Rate limited. Waiting {wait:.2f} seconds...")
+            time.sleep(wait)
+        elif response.status_code == 418:
+            raise Exception("🚫 IP banned. Stop now.")
+        else:
+            raise Exception(f"Unexpected error: {response.status_code} {response.text}")
     response = requests.get(url)
     if response.status_code != 200:
         raise Exception(f"Binance.US API error: {response.status_code} {response.text}")
@@ -83,6 +98,36 @@ def write_raw_to_duckdb(data, date_str, duckdb_path="data/blockstream.duckdb"):
     con.close()
     print(f"Inserted raw data into DuckDB with id={date_str}")
 
+def backfill_range(start_date, end_date, duckdb_path="data/blockstream.duckdb"):
+    """
+    Backfill Binance.US 24hr ticker data from start_date to end_date (inclusive).
+
+    Args:
+        start_date (datetime): Start date (UTC).
+        end_date (datetime): End date (UTC).
+        duckdb_path (str): Path to DuckDB database.
+    """
+    print(f"Starting backfill from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}...")
+
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = current_date.strftime("%Y%m%d")
+        print(f"\nChecking {date_str}...")
+
+        if exists_for_date(duckdb_path, date_str):
+            print(f"  ✅ Data for {date_str} already exists. Skipping.")
+        else:
+            print(f"  ⏳ Fetching and writing data for {date_str}...")
+            try:
+                data = fetch_binance_24hr_ticker()
+                save_raw_json(data, date_str)
+                write_raw_to_duckdb(data, date_str, duckdb_path)
+                print(f"  ✅ Backfilled {date_str}")
+            except Exception as e:
+                print(f"  ❌ Failed on {date_str}: {e}")
+
+        current_date += timedelta(days=1)
+
 def main():
     """
     Main extraction process.
@@ -110,4 +155,11 @@ def main():
     print("Extraction and write complete.")
 
 if __name__ == "__main__":
+    backfill = True
+    if backfill:
+        from datetime import datetime
+        backfill_range(
+            start_date=datetime(2023, 1, 1, tzinfo=timezone.utc),
+            end_date=datetime(2025, 7, 16, tzinfo=timezone.utc)
+        )
     main()
