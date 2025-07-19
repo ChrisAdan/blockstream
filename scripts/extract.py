@@ -33,33 +33,30 @@ def fetch_binance_24hr_ticker():
     Returns:
         list: A list of dictionaries containing ticker data for all trading pairs.
 
-    Rate Limit Strategy:
-        - Binance.US allows up to 1200 weight per minute per IP.
-        - This endpoint (/api/v3/ticker/24hr) uses 1 weight per request.
-        - To avoid bans:
-            - Use exponential backoff on 429 (Too Many Requests).
-            - Abort immediately on 418 (IP banned).
-            - Introduce base delay between requests (e.g., 1.5s) for safe backfill loops.
-
-    Raises:
-        SystemExit: If a 418 IP ban is encountered.
-        Exception: If other HTTP errors occur.
+    Notes:
+        - Retries indefinitely until a successful response is received.
+        - Handles rate limiting (429) with exponential backoff and jitter.
+        - Exits immediately if an IP ban (418) is encountered.
     """
     url = "https://api.binance.us/api/v3/ticker/24hr"
-    max_retries = 5
+    retry_count = 0
 
-    for i in range(max_retries):
+    while True:
         try:
             response = requests.get(url)
         except requests.RequestException as e:
-            raise Exception(f"Network error: {e}")
+            print(f"[Network Error] {e}. Retrying in 10s...")
+            time.sleep(10)
+            continue
 
         if response.status_code == 200:
+            print(f"[Success] Retrieved ticker data after {retry_count} retries.")
             return response.json()
 
         elif response.status_code == 429:
-            wait = (2 ** i) + random.uniform(1, 2)  # add jitter
-            print(f"[429] Rate limited. Retry {i+1}/{max_retries}. Waiting {wait:.2f}s...")
+            retry_count += 1
+            wait = min((2 ** retry_count) + random.uniform(1, 2), 60)  # jitter + capped backoff
+            print(f"[429] Rate limited. Retry {retry_count}. Waiting {wait:.2f}s...")
             time.sleep(wait)
 
         elif response.status_code == 418:
@@ -74,9 +71,8 @@ def fetch_binance_24hr_ticker():
             sys.exit(1)
 
         else:
-            raise Exception(f"Unexpected error: {response.status_code} {response.text}")
-
-    raise Exception(f"Failed after {max_retries} retries: {response.status_code} {response.text}")
+            print(f"[Error] Unexpected status {response.status_code}: {response.text}. Retrying in 15s...")
+            time.sleep(15)
 
 def save_raw_json(data, date_str, base_dir="data/raw_json/binance_us"):
     """
@@ -95,33 +91,41 @@ def save_raw_json(data, date_str, base_dir="data/raw_json/binance_us"):
         json.dump(data, f, indent=2)
     print(f"Saved raw data to {filepath}")
 
-def write_raw_to_duckdb(data, date_str, duckdb_path="data/blockstream.duckdb"):
+def write_raw_to_duckdb(data, date_str, schema="raw", duckdb_path="data/blockstream.duckdb"):
     """
-    Insert the raw JSON data into the DuckDB raw data table using the date as the primary key.
+    Insert the raw JSON data into the DuckDB raw data table within the specified schema.
 
     Args:
-        data (list): The raw data to insert (typically JSON-parsed Python list/dict).
+        data (list|dict): The raw data to insert (typically JSON-parsed Python list/dict).
         date_str (str): The date string in 'YYYYMMDD' format serving as primary key.
-        duckdb_path (str, optional): Path to the DuckDB database file.
-            Defaults to "data/blockstream.duckdb".
+        schema (str, optional): The target schema. Defaults to 'raw'.
+        duckdb_path (str, optional): Path to the DuckDB database file. Defaults to 'data/blockstream.duckdb'.
     """
     con = duckdb.connect(duckdb_path)
 
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS raw_binance_us_24hr_ticker (
-            id VARCHAR PRIMARY KEY,
+    # Ensure schema exists
+    con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+
+    # Fully qualified table name
+    table_name = f"{schema}.raw_binance_us_24hr_ticker"
+
+    # Create table if it doesn't exist
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            id INT PRIMARY KEY,
             raw_response VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    con.execute("""
-        INSERT INTO raw_binance_us_24hr_ticker (id, raw_response, created_at)
+    # Insert data
+    con.execute(f"""
+        INSERT INTO {table_name} (id, raw_response, created_at)
         VALUES (?, ?, ?)
     """, (date_str, json.dumps(data), datetime.now(timezone.utc)))
 
     con.close()
-    print(f"Inserted raw data into DuckDB with id={date_str}")
+    print(f"Inserted raw data into DuckDB schema '{schema}' with id={date_str}")
 
 def backfill_range(start_date, end_date, duckdb_path="data/blockstream.duckdb"):
     """
@@ -167,7 +171,7 @@ def main():
     date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     print(f"Starting extraction for date: {date_str}")
 
-    if exists_for_date("scripts/data/blockstream.duckdb", date_str):
+    if exists_for_date("data/blockstream.duckdb", date_str):
         print(f"Data for {date_str} already exists, skipping extraction.")
         return
 
@@ -180,7 +184,7 @@ def main():
     print("Extraction and write complete.")
 
 if __name__ == "__main__":
-    backfill = True
+    backfill = False
     if backfill:
         from datetime import datetime
         backfill_range(
