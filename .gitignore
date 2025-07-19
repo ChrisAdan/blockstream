@@ -208,4 +208,4 @@ __marimo__/
 
 
 scripts/data/raw_json/
-scripts/data/blockstream.duckdb
+*.duckdb
