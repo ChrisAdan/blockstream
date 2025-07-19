@@ -16,7 +16,7 @@ jobs:
       - name: Download DuckDB artifact (if exists)
         uses: actions/download-artifact@v4
         with:
-          name: blockstream-duckdb
+          name: blockstream.duckdb
           path: scripts/data
         continue-on-error: true # First run may not have artifact, so don’t fail
 
