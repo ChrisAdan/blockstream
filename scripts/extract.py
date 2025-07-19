@@ -5,6 +5,8 @@ from datetime import datetime, timezone, timedelta
 import duckdb
 import time
 import random
+import sys
+import re
 
 def exists_for_date(duckdb_path, id):
     """
@@ -31,27 +33,50 @@ def fetch_binance_24hr_ticker():
     Returns:
         list: A list of dictionaries containing ticker data for all trading pairs.
 
+    Rate Limit Strategy:
+        - Binance.US allows up to 1200 weight per minute per IP.
+        - This endpoint (/api/v3/ticker/24hr) uses 1 weight per request.
+        - To avoid bans:
+            - Use exponential backoff on 429 (Too Many Requests).
+            - Abort immediately on 418 (IP banned).
+            - Introduce base delay between requests (e.g., 1.5s) for safe backfill loops.
+
     Raises:
-        Exception: If the API request fails or returns a non-200 status code.
+        SystemExit: If a 418 IP ban is encountered.
+        Exception: If other HTTP errors occur.
     """
     url = "https://api.binance.us/api/v3/ticker/24hr"
-    retries = 3
-    for i in range(retries):
-        response = requests.get(url)
+    max_retries = 5
+
+    for i in range(max_retries):
+        try:
+            response = requests.get(url)
+        except requests.RequestException as e:
+            raise Exception(f"Network error: {e}")
+
         if response.status_code == 200:
             return response.json()
+
         elif response.status_code == 429:
-            wait = (2 ** i) + random.uniform(0, 1)
-            print(f"Rate limited. Waiting {wait:.2f} seconds...")
+            wait = (2 ** i) + random.uniform(1, 2)  # add jitter
+            print(f"[429] Rate limited. Retry {i+1}/{max_retries}. Waiting {wait:.2f}s...")
             time.sleep(wait)
+
         elif response.status_code == 418:
-            raise Exception("🚫 IP banned. Stop now.")
+            msg = response.text
+            match = re.search(r'until (\d+)', msg)
+            if match:
+                ban_until_ms = int(match.group(1))
+                ban_until_dt = datetime.fromtimestamp(ban_until_ms / 1000).astimezone()
+                print(f"🚫 IP banned until: {ban_until_dt.strftime('%Y-%m-%d %H:%M:%S %Z')} (local time)")
+            else:
+                print("🚫 IP banned (HTTP 418), but couldn't parse expiration time.")
+            sys.exit(1)
+
         else:
             raise Exception(f"Unexpected error: {response.status_code} {response.text}")
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise Exception(f"Binance.US API error: {response.status_code} {response.text}")
-    return response.json()
+
+    raise Exception(f"Failed after {max_retries} retries: {response.status_code} {response.text}")
 
 def save_raw_json(data, date_str, base_dir="data/raw_json/binance_us"):
     """
@@ -160,6 +185,6 @@ if __name__ == "__main__":
         from datetime import datetime
         backfill_range(
             start_date=datetime(2023, 1, 1, tzinfo=timezone.utc),
-            end_date=datetime(2025, 7, 16, tzinfo=timezone.utc)
+            end_date=datetime(2025, 7, 18, tzinfo=timezone.utc)
         )
     main()
