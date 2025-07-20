@@ -177,12 +177,12 @@ def main():
     print("Extraction and write complete.")
 
 if __name__ == "__main__":
-    backfill = False
+    backfill = True
     ensure_table_exists(DB)
     if backfill:
         from datetime import datetime
         backfill_range(
-            start_date=datetime(2025, 7, 17, tzinfo=timezone.utc),
+            start_date=datetime(2023, 1, 1, tzinfo=timezone.utc),
             end_date=datetime.now(timezone.utc)
         )
     main()
