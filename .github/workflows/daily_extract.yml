@@ -1,9 +1,9 @@
 name: Daily Binance.US Extraction
 
 on:
-  workflow_dispatch: # manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: "0 0 * * *" # daily at midnight UTC
+    - cron: "0 0 * * *" # Daily midnight UTC
 
 jobs:
   extract:
@@ -18,12 +18,17 @@ jobs:
         with:
           name: blockstream.duckdb
           path: data/
-        continue-on-error: true # First run may not have artifact, so don’t fail
+        continue-on-error: true # Ignore error if no artifact yet
 
-      - name: Debug DB file
+      - name: Debug DB file presence
         run: |
           ls -lh data/
-          file data/blockstream.duckdb || echo "DB not found"
+          if [ -f data/blockstream.duckdb ]; then
+            echo "DB file found"
+            file data/blockstream.duckdb
+          else
+            echo "DB file NOT found — this is expected on first run"
+          fi
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
@@ -41,7 +46,12 @@ jobs:
           source venv/bin/activate
           python scripts/extract.py
 
-      - name: Upload DuckDB artifact
+      - name: Verify DB file after extraction
+        run: |
+          ls -lh data/
+          file data/blockstream.duckdb
+
+      - name: Upload updated DuckDB artifact
         uses: actions/upload-artifact@v4
         with:
           name: blockstream.duckdb
