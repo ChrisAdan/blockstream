@@ -17,8 +17,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: blockstream.duckdb
-          path: scripts/data
+          path: data/
         continue-on-error: true # First run may not have artifact, so don’t fail
+
+      - name: Debug DB file
+        run: |
+          ls -lh data/
+          file data/blockstream.duckdb || echo "DB not found"
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
@@ -39,5 +44,5 @@ jobs:
       - name: Upload DuckDB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: blockstream-duckdb
-          path: scripts/data/blockstream.duckdb
+          name: blockstream.duckdb
+          path: data/blockstream.duckdb
