@@ -1,14 +1,20 @@
 import requests
 import json
-import os
 from datetime import datetime, timezone, timedelta
 import duckdb
+from duckdb import ConstraintException
 import time
 import random
+from pathlib import Path
 import sys
 import re
 
-def exists_for_date(duckdb_path, id):
+script_dir = Path(__file__).resolve().parent
+
+DB = (script_dir / '..' / "data" / "blockstream.duckdb").resolve()
+JSON_DIR = (script_dir / '..' / "data" / "raw_json" / "binance_us").resolve()
+
+def exists_for_date(duckdb_path, id, schema='raw'):
     """
     Check if a record for the given date ID already exists in the DuckDB table.
 
@@ -20,8 +26,10 @@ def exists_for_date(duckdb_path, id):
         bool: True if a record exists for the given id, False otherwise.
     """
     con = duckdb.connect(duckdb_path)
+    table_name = f"{schema}.raw_binance_us_24hr_ticker"
+
     result = con.execute(
-        "SELECT COUNT(1) FROM raw_binance_us_24hr_ticker WHERE id = ?", [id]
+        f"SELECT COUNT(1) FROM {table_name} WHERE id = ?", [id]
     ).fetchone()[0]
     con.close()
     return result > 0
@@ -74,24 +82,28 @@ def fetch_binance_24hr_ticker():
             print(f"[Error] Unexpected status {response.status_code}: {response.text}. Retrying in 15s...")
             time.sleep(15)
 
-def save_raw_json(data, date_str, base_dir="data/raw_json/binance_us"):
+def save_raw_json(data, date_str, base_dir=JSON_DIR):
     """
     Save the raw JSON data to a file named with the given date.
 
     Args:
         data (list): The raw data to save (typically JSON-parsed Python list/dict).
         date_str (str): The date string in 'YYYYMMDD' format for filename.
-        base_dir (str, optional): Directory path where the file will be saved.
-            Defaults to "data/raw_json/binance_us".
+        base_dir (Path, optional): Directory path where the file will be saved.
+            Defaults to JSON_DIR (Path to "data/raw_json/binance_us").
     """
-    os.makedirs(base_dir, exist_ok=True)
+    base_dir = Path(base_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
     filename = f"daily_24hr_ticker_{date_str}.json"
-    filepath = os.path.join(base_dir, filename)
-    with open(filepath, "w") as f:
+    filepath = base_dir / filename
+
+    with filepath.open("w") as f:
         json.dump(data, f, indent=2)
+
     print(f"Saved raw data to {filepath}")
 
-def write_raw_to_duckdb(data, date_str, schema="raw", duckdb_path="data/blockstream.duckdb"):
+def write_raw_to_duckdb(data, date_str, schema="raw", duckdb_path=DB):
     """
     Insert the raw JSON data into the DuckDB raw data table within the specified schema.
 
@@ -118,16 +130,24 @@ def write_raw_to_duckdb(data, date_str, schema="raw", duckdb_path="data/blockstr
         )
     """)
 
-    # Insert data
-    con.execute(f"""
-        INSERT INTO {table_name} (id, raw_response, created_at)
-        VALUES (?, ?, ?)
-    """, (date_str, json.dumps(data), datetime.now(timezone.utc)))
+    try:
+        # Insert data
+        con.execute(f"""
+            INSERT INTO {table_name} (id, raw_response, created_at)
+            VALUES (?, ?, ?)
+        """, (date_str, json.dumps(data), datetime.now(timezone.utc)))
+        print(f"✅ Inserted raw data into DuckDB schema '{schema}' with id={date_str}")
 
-    con.close()
-    print(f"Inserted raw data into DuckDB schema '{schema}' with id={date_str}")
+    except ConstraintException as e:
+        if "primary key" in str(e):
+            print(f"⚠️ Skipped insert: record with id={date_str} already exists in {table_name}.")
+        else:
+            print(f"❌ Unexpected DB integrity error: {e}")
+            raise  # re-raise unknown integrity errors
+    finally:
+        con.close()
 
-def backfill_range(start_date, end_date, duckdb_path="data/blockstream.duckdb"):
+def backfill_range(start_date, end_date, duckdb_path=DB):
     """
     Backfill Binance.US 24hr ticker data from start_date to end_date (inclusive).
 
@@ -150,7 +170,7 @@ def backfill_range(start_date, end_date, duckdb_path="data/blockstream.duckdb"):
             try:
                 data = fetch_binance_24hr_ticker()
                 save_raw_json(data, date_str)
-                write_raw_to_duckdb(data, date_str, duckdb_path)
+                write_raw_to_duckdb(data=data, date_str=date_str, duckdb_path=duckdb_path)
                 print(f"  ✅ Backfilled {date_str}")
             except Exception as e:
                 print(f"  ❌ Failed on {date_str}: {e}")
@@ -171,7 +191,7 @@ def main():
     date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     print(f"Starting extraction for date: {date_str}")
 
-    if exists_for_date("data/blockstream.duckdb", date_str):
+    if exists_for_date(DB, date_str):
         print(f"Data for {date_str} already exists, skipping extraction.")
         return
 
@@ -184,11 +204,11 @@ def main():
     print("Extraction and write complete.")
 
 if __name__ == "__main__":
-    backfill = False
+    backfill = True
     if backfill:
         from datetime import datetime
         backfill_range(
-            start_date=datetime(2023, 1, 1, tzinfo=timezone.utc),
-            end_date=datetime(2025, 7, 18, tzinfo=timezone.utc)
+            start_date=datetime(2025, 7, 17, tzinfo=timezone.utc),
+            end_date=datetime.now(timezone.utc)
         )
     main()
