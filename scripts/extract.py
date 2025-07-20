@@ -14,23 +14,23 @@ script_dir = Path(__file__).resolve().parent
 DB = (script_dir / '..' / "data" / "blockstream.duckdb").resolve()
 JSON_DIR = (script_dir / '..' / "data" / "raw_json" / "binance_us").resolve()
 
-def exists_for_date(duckdb_path, id, schema='raw'):
-    """
-    Check if a record for the given date ID already exists in the DuckDB table.
+def ensure_table_exists(duckdb_path, schema="raw"):
+    con = duckdb.connect(duckdb_path)
+    con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+    table_name = f"{schema}.raw_binance_us_24hr_ticker"
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            id INT PRIMARY KEY,
+            raw_response VARCHAR,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    con.close()
 
-    Args:
-        duckdb_path (str): Path to the DuckDB database file.
-        id (str): Date string in 'YYYYMMDD' format serving as the primary key.
-
-    Returns:
-        bool: True if a record exists for the given id, False otherwise.
-    """
+def exists_for_date(duckdb_path, id, schema="raw"):
     con = duckdb.connect(duckdb_path)
     table_name = f"{schema}.raw_binance_us_24hr_ticker"
-
-    result = con.execute(
-        f"SELECT COUNT(1) FROM {table_name} WHERE id = ?", [id]
-    ).fetchone()[0]
+    result = con.execute(f"SELECT COUNT(1) FROM {table_name} WHERE id = ?", [id]).fetchone()[0]
     con.close()
     return result > 0
 
@@ -104,46 +104,19 @@ def save_raw_json(data, date_str, base_dir=JSON_DIR):
     print(f"Saved raw data to {filepath}")
 
 def write_raw_to_duckdb(data, date_str, schema="raw", duckdb_path=DB):
-    """
-    Insert the raw JSON data into the DuckDB raw data table within the specified schema.
-
-    Args:
-        data (list|dict): The raw data to insert (typically JSON-parsed Python list/dict).
-        date_str (str): The date string in 'YYYYMMDD' format serving as primary key.
-        schema (str, optional): The target schema. Defaults to 'raw'.
-        duckdb_path (str, optional): Path to the DuckDB database file. Defaults to 'data/blockstream.duckdb'.
-    """
     con = duckdb.connect(duckdb_path)
-
-    # Ensure schema exists
-    con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-
-    # Fully qualified table name
     table_name = f"{schema}.raw_binance_us_24hr_ticker"
-
-    # Create table if it doesn't exist
-    con.execute(f"""
-        CREATE TABLE IF NOT EXISTS {table_name} (
-            id INT PRIMARY KEY,
-            raw_response VARCHAR,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
     try:
-        # Insert data
         con.execute(f"""
             INSERT INTO {table_name} (id, raw_response, created_at)
             VALUES (?, ?, ?)
         """, (date_str, json.dumps(data), datetime.now(timezone.utc)))
         print(f"✅ Inserted raw data into DuckDB schema '{schema}' with id={date_str}")
-
-    except ConstraintException as e:
-        if "primary key" in str(e):
+    except duckdb.ConstraintException as e:
+        if "primary key" in str(e).lower():
             print(f"⚠️ Skipped insert: record with id={date_str} already exists in {table_name}.")
         else:
-            print(f"❌ Unexpected DB integrity error: {e}")
-            raise  # re-raise unknown integrity errors
+            raise
     finally:
         con.close()
 
@@ -204,7 +177,8 @@ def main():
     print("Extraction and write complete.")
 
 if __name__ == "__main__":
-    backfill = True
+    backfill = False
+    ensure_table_exists(DB)
     if backfill:
         from datetime import datetime
         backfill_range(
