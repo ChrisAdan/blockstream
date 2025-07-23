@@ -1,4 +1,10 @@
-{{ config(materialized='view') }}
+{{ config(
+  materialized='incremental',
+  unique_key='symbol || date',
+  incremental_strategy='insert_overwrite',
+  partition_by={'field': 'date', 'data_type': 'date'}
+) }}
+
 
 with exploded as (
     select
@@ -6,6 +12,7 @@ with exploded as (
         raw_response[i] as obj
     from {{ source('raw', 'raw_binance_us_24hr_ticker') }},
          range(0, length(raw_response)) as t(i)
+    
 ),
 
 typed as (
@@ -36,3 +43,6 @@ typed as (
 )
 
 select * from typed
+{% if is_incremental() %}
+    where date(open_time_utc) >= (select max(date) from {{ this }})
+{% endif %}
