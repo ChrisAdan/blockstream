@@ -9,7 +9,7 @@ Stay informed on top movers, droppers, and key market trends — all fully autom
 ## 📆 Project Timeline
 
 - ✅ **Week 1:** Data source identified and extract script working.
-- 🔜 **Week 2:** Load to database and transformation logic stable.
+- ✅ **Week 2:** Load to database and transformation logic stable.
 - 🔜 **Week 3:** Orchestration and monitoring live with automated alerts.
 - 🔜 **Week 4:** Streamlit dashboard & subscription email bulletin launched.
 
