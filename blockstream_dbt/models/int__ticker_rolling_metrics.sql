@@ -40,9 +40,9 @@ rolling_metrics as (
     select
         *,
         -- Prices
-        {{ rolling_avg_price('last_price', 7) }} as avg_price_7d,
-        {{ rolling_avg_price('last_price', 14) }} as avg_price_14d,
-        {{ rolling_avg_price('last_price', 28) }} as avg_price_28d,
+        {{ rolling_avg('last_price', 7) }} as avg_price_7d,
+        {{ rolling_avg('last_price', 14) }} as avg_price_14d,
+        {{ rolling_avg('last_price', 28) }} as avg_price_28d,
 
         {{ rolling_max('high_price', 7) }} as high_price_7d,
         {{ rolling_min('low_price', 7) }} as low_price_7d,
