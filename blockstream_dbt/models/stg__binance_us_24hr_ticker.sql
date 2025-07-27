@@ -11,8 +11,7 @@ with exploded as (
         id as record_date,
         raw_response[i] as obj
     from {{ source('raw', 'raw_binance_us_24hr_ticker') }},
-         range(0, length(raw_response)) as t(i)
-    
+         range(0, length(raw_response)) as t(i)    
 ),
 
 typed as (
