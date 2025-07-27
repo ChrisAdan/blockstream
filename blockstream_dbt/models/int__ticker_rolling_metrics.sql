@@ -3,12 +3,25 @@
     unique_key = 'symbol || record_date'
 ) }}
 
-{% set basic_metrics = ['last_price', 'high_price', 'low_price', 'volume', 'quote_volume', 'trade_count', 'bid_qty', 'ask_qty'] %}
-{% set special_metrics = [
-    {'name': 'true_range', 'cols': ['high_price', 'low_price']},
-    {'name': 'max_drawdown', 'cols': ['last_price']}
-] %}
+-- int__ticker_rolling_metrics
+-- Generates rolling aggregates (avg, sum, stddev) and derived indicators 
+-- for Binance US 24hr ticker data.
+
 {% set windows = [7, 14, 28] %}
+
+{# Define all metrics and their applicable aggregations. Special metrics have custom agg functions listed #}
+{% set metric_aggs = {
+    'last_price': ['avg', 'stddev'],
+    'high_price': ['avg', 'stddev'],
+    'low_price': ['avg', 'stddev'],
+    'volume': ['avg', 'sum', 'stddev'],
+    'quote_volume': ['avg', 'sum', 'stddev'],
+    'trade_count': ['avg', 'sum', 'stddev'],
+    'bid_qty': ['avg', 'stddev'],
+    'ask_qty': ['avg', 'stddev'],
+    'true_range': ['true_range'],
+    'max_drawdown': ['max_drawdown']
+} %}
 
 with base as (
 
@@ -35,7 +48,7 @@ with base as (
         first_trade_id,
         last_trade_id,
         trade_count
-    from {{ ref('stg_binance_us_24hr_ticker') }}
+    from {{ ref('stg__binance_us_24hr_ticker') }}
     {% if is_incremental() %}
         where record_date > (select max(record_date) from {{ this }})
     {% endif %}
@@ -47,28 +60,42 @@ rolling_metrics as (
     select
         base.*,
 
-        -- BASIC METRICS: Rolling avg, sum, stddev
-        {% for col in basic_metrics %}
-            {% for w in windows %}
-                {{ rolling_avg(col, w) }} as {{ col }}_avg_{{ w }}d,
-                {{ rolling_sum(col, w) }} as {{ col }}_sum_{{ w }}d,
-                {{ rolling_stddev(col, w) }} as {{ col }}_stddev_{{ w }}d
-                {% if not loop.last or not loop.parent.last %}, {% endif %}
-            {% endfor %}
-        {% endfor %}
+        {# Calculate rolling metrics for each metric and window #}
+        {% set metric_names = metric_aggs.keys() | list %}
+        {% for m_idx in range(metric_names | length) %}
+        {% set metric = metric_names[m_idx] %}
+        {% set aggs = metric_aggs[metric] %}
+        {% for w_idx in range(windows | length) %}
+            {% set window = windows[w_idx] %}
 
-        -- SPECIAL METRICS: true_range and max_drawdown
-        {% for metric in special_metrics %}
-            {% set name = metric.name %}
-            {% set cols = metric.cols %}
-            {% for w in windows %}
-                {% if name == 'true_range' %}
-                    , {{ rolling_true_range(cols[0], cols[1], w) }} as {{ name }}_{{ w }}d
-                {% elif name == 'max_drawdown' %}
-                    , {{ rolling_max_drawdown(cols[0], w) }} as {{ name }}_{{ w }}d
+            {% for a_idx in range(aggs | length) %}
+                {% set agg = aggs[a_idx] %}
+                {%- set is_last_metric = (m_idx == (metric_names | length - 1)) %}
+                {%- set is_last_window = (w_idx == (windows | length - 1)) %}
+                {%- set is_last_agg = (a_idx == (aggs | length - 1)) %}
+                {%- set is_last_item = is_last_metric and is_last_window and is_last_agg %}
+
+                {% if agg == 'true_range' %}
+                    {{ rolling_true_range('high_price', 'low_price', window) }} as true_range_{{ window }}d
+                    {%- if not is_last_item %},{% endif %}
+                {% elif agg == 'max_drawdown' %}
+                    {{ rolling_max_drawdown('last_price', window) }} as max_drawdown_{{ window }}d
+                    {%- if not is_last_item %},{% endif %}
+                {% elif agg == 'avg' %}
+                    {{ rolling_avg(metric, window) }} as {{ metric }}_avg_{{ window }}d
+                    {%- if not is_last_item %},{% endif %}
+                {% elif agg == 'sum' %}
+                    {{ rolling_sum(metric, window) }} as {{ metric }}_sum_{{ window }}d
+                    {%- if not is_last_item %},{% endif %}
+                {% elif agg == 'stddev' %}
+                    {{ rolling_stddev(metric, window) }} as {{ metric }}_stddev_{{ window }}d
+                    {%- if not is_last_item %},{% endif %}
                 {% endif %}
+
             {% endfor %}
         {% endfor %}
+    {% endfor %}
+
 
     from base
 
@@ -91,7 +118,7 @@ derived_metrics as (
         (ask_price - bid_price) / nullif(last_price, 0) as spread_pct,
 
         -- Efficiency: Movement vs range
-        abs(price_change) / nullif((high_price_7d - low_price_7d), 0) as price_efficiency_ratio,
+        abs(price_change) / nullif((high_price_avg_7d - low_price_avg_7d), 0) as price_efficiency_ratio,
 
         -- Order Book Depth Ratios
         case when ask_qty_avg_7d + bid_qty_avg_7d > 0
