@@ -54,9 +54,13 @@ def merge_duckdb_files(local_db_path: Path, new_db_path: Path, schema='raw', tab
             INSERT INTO {schema}.{table} (id, raw_response, created_at)
             SELECT id, raw_response, created_at
             FROM newdb.{schema}.{table}
+            WHERE raw_response IS NOT NULL
+              AND length(trim(raw_response)) > 0
+              AND try_cast(raw_response AS JSON) IS NOT NULL
             ON CONFLICT(id) DO NOTHING
             RETURNING *;
         """).fetchall()
+
         print(f"✅ Inserted {len(result)} new rows from {new_db_path.name} into {local_db_path.name}")
 
     except Exception as e:
