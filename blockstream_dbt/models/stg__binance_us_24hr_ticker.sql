@@ -10,6 +10,7 @@ with parsed as (
         id as record_date,
         try_cast(raw_response as JSON) as parsed_json
     from {{ source('raw', 'raw_binance_us_24hr_ticker') }}
+    group by 1, 2
 ),
 
 exploded as (
