@@ -163,14 +163,35 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 ## 📊 7. Finance Metrics to Track
 
-| Metric                  | Description                                   |
-| ----------------------- | --------------------------------------------- |
-| `rolling_high_7d`       | Max high_price over last 7 days               |
-| `rolling_avg_price_14d` | Avg of (high + low)/2 over 14d                |
-| `volatility_28d`        | Stddev of price_change_pct over 28 days       |
-| `volume_trend_7d`       | Volume change over last 7 days vs prior 7     |
-| `price_momentum_14d`    | Slope of price trend (linear regression 14d)  |
-| `max_drawdown`          | % drop from peak price within trailing window |
+This model dynamically generates rolling financial indicators using Jinja macros, allowing for scalable extension to additional metrics or time windows. Metrics include standard aggregates (avg, sum, stddev) as well as custom-calculated indicators such as true range and max drawdown. Metrics are windowed over 7, 14, and 28-day periods, making it adaptable for trend analysis and volatility tracking.
+
+| Metric                   | Aggregations     | Windows   | Definition                                                 |
+| ------------------------ | ---------------- | --------- | ---------------------------------------------------------- |
+| `last_price`             | avg, stddev      | 7, 14, 28 | Average or volatility of the last trading price            |
+| `high_price`             | avg, stddev      | 7, 14, 28 | Aggregated high price over time                            |
+| `low_price`              | avg, stddev      | 7, 14, 28 | Aggregated low price over time                             |
+| `volume`                 | avg, sum, stddev | 7, 14, 28 | Trading volume summary and trend                           |
+| `quote_volume`           | avg, sum, stddev | 7, 14, 28 | Volume in quote asset terms                                |
+| `trade_count`            | avg, sum, stddev | 7, 14, 28 | Number of trades in the period                             |
+| `bid_qty`                | avg, stddev      | 7, 14, 28 | Average and volatility of bid-side quantity                |
+| `ask_qty`                | avg, stddev      | 7, 14, 28 | Average and volatility of ask-side quantity                |
+| `true_range_{window}d`   | _custom macro_   | 7, 14, 28 | High - Low of last price for each day, then rolling stddev |
+| `max_drawdown_{window}d` | _custom macro_   | 7, 14, 28 | Largest peak-to-trough drop in price over the period       |
+| `pct_change_7d`          | derived          | 7         | Change in last price vs 7-day average                      |
+| `liquidity_ratio`        | derived          | 7         | Volume divided by 7-day average price                      |
+| `price_to_volume_ratio`  | derived          | 1         | Last price divided by volume                               |
+| `bid_ask_spread`         | derived          | 1         | Ask price minus bid price                                  |
+| `spread_pct`             | derived          | 1         | Bid-ask spread relative to price                           |
+| `price_efficiency_ratio` | derived          | 7         | Abs(price change) vs high-low range over 7d                |
+| `bid_ratio_7d`           | derived          | 7         | Bid qty share of total book (7d avg)                       |
+| `ask_ratio_7d`           | derived          | 7         | Ask qty share of total book (7d avg)                       |
+| `rank_price_increase_7d` | rank             | 7         | Rank of tokens by 7-day price change                       |
+| `rank_volatility_7d`     | rank             | 7         | Rank by price stddev over 7 days                           |
+| `rank_volume_7d`         | rank             | 7         | Rank by 7-day trading volume                               |
+| `rank_liquidity_7d`      | rank             | 7         | Rank by liquidity ratio                                    |
+| `rank_trade_activity_7d` | rank             | 7         | Rank by number of trades in 7 days                         |
+
+_Note: All metrics are generated dynamically via Jinja loops and custom macros to ensure minimal duplication and easy extensibility._
 
 ---
 
@@ -188,8 +209,8 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 | Schema             | Purpose                              | Example Models                             |
 | ------------------ | ------------------------------------ | ------------------------------------------ |
-| `raw`              | Ingested JSON or structured data     | `raw__24hr_ticker_usdt`                    |
-| `staging`          | Typed, deduped, enriched source data | `stg__24hr_ticker_usdt`                    |
+| `raw`              | Ingested JSON or structured data     | `raw_binance_us_24hr_ticker`               |
+| `staging`          | Typed, deduped, enriched source data | `stg__binance_us_24hr_ticker`              |
 | `intermediate`     | Business logic + rolling metrics     | `int__ticker_rolling_metrics`              |
 | `gold`             | Analytics-ready facts and dimensions | `fact__ticker_summary_daily`, `dim__coins` |
 | `meta/diagnostics` | Data quality & ingestion health      | `meta__ticker_load_stats`                  |
