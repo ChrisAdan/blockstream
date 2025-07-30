@@ -244,7 +244,7 @@ def main():
 
 
 if __name__ == "__main__":
-    backfill = True
+    backfill = False
     ensure_table_exists(DB)
     if backfill:
         from datetime import datetime
