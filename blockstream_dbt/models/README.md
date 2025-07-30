@@ -40,7 +40,7 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 ## 🧪 2. dbt Models
 
-### 🥈 Staging Layer: `stg__24hr_ticker_usdt`
+### 🥈 Staging Layer: `stg__binance_us_24hr_ticker`
 
 - Type enforcement, renaming, filtering
 - Adds `date` column from `open_time`
@@ -48,7 +48,7 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 ---
 
-### 📊 Intermediate Layer: `stg__binance_us_24hr_ticker`
+### 📊 Intermediate Layer: `int__ticker_rolling_metrics`
 
 - Rolling metrics:
   - 7/14/28-day high/low prices
