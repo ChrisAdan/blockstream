@@ -1,8 +1,8 @@
 # 🧱 BlockStream: dbt Transformation & Data Architecture Framework
 
-[![DuckDB](https://img.shields.io/badge/Database-DuckDB-yellowgreen)](https://duckdb.org)  
+[![DuckDB](https://img.shields.io/badge/Database-DuckDB-yellowgreen)](https://duckdb.org)
 [![dbt](https://img.shields.io/badge/dbt-analytics%20engineering-orange)](https://www.getdbt.com)  
-[![Status](https://img.shields.io/badge/status-in%20design-blue)]()  
+[![Status](https://img.shields.io/badge/status-in%20design-blue)]()
 [![Coverage](https://img.shields.io/badge/tests-auto%20&%20custom%20in%20dbt-green)]()  
 [![Monitoring](https://img.shields.io/badge/monitoring-enabled-success)]()
 
@@ -22,7 +22,7 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 ## 🧱 1. Data Architecture
 
-### ❄️ Bronze Layer: `raw__24hr_ticker_usdt`
+### ❄️ Bronze Layer: `raw_binance_us_24hr_ticker`
 
 **Source**: Binance 24hr Ticker  
 **Grain**: One row per symbol per snapshot  
@@ -30,19 +30,11 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 #### Schema
 
-| Column             | Type      | Description                     |
-| ------------------ | --------- | ------------------------------- |
-| `symbol`           | TEXT      | Trading pair (e.g., BTCUSDT)    |
-| `price_change`     | FLOAT     | Price change over 24hr          |
-| `price_change_pct` | FLOAT     | Percent change over 24hr        |
-| `high_price`       | FLOAT     | 24hr high                       |
-| `low_price`        | FLOAT     | 24hr low                        |
-| `volume`           | FLOAT     | Volume traded in base currency  |
-| `quote_volume`     | FLOAT     | Volume traded in quote currency |
-| `open_time`        | TIMESTAMP | 24hr window open                |
-| `close_time`       | TIMESTAMP | 24hr window close               |
-| `load_ts`          | TIMESTAMP | Ingestion timestamp             |
-| `raw_json`         | VARIANT   | Full raw record (optional)      |
+| Column         | Type      | Description                            |
+| -------------- | --------- | -------------------------------------- |
+| `id`           | TEXT      | Unique identifier for the record       |
+| `raw_response` | VARIANT   | Full raw JSON response from the API    |
+| `created_at`   | TIMESTAMP | Timestamp when the record was ingested |
 
 ---
 
@@ -56,7 +48,7 @@ A robust framework for transforming Binance USDT 24hr ticker dailies using dbt a
 
 ---
 
-### 📊 Intermediate Layer: `int__ticker_rolling_metrics`
+### 📊 Intermediate Layer: `stg__binance_us_24hr_ticker`
 
 - Rolling metrics:
   - 7/14/28-day high/low prices
