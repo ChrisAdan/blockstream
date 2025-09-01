@@ -12,7 +12,6 @@ test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
-docs-paths: ["docs"]
 
 clean-targets:
   - "target"
@@ -52,24 +51,18 @@ models:
     staging:
       +materialized: view
       +tags: ["staging"]
-      +docs:
-        show: true
       schema: staging
 
     # Intermediate models
     intermediate:
       +materialized: view
       +tags: ["intermediate"]
-      +docs:
-        show: true
       schema: intermediate
 
     # Marts (analytics-ready tables)
     marts:
       +materialized: table
       +tags: ["mart"]
-      +docs:
-        show: true
       +post-hook: "{{ log('Completed building mart: ' ~ this, info=true) }}"
       schema: analytics
 
@@ -85,18 +78,12 @@ models:
     meta:
       +materialized: table
       +tags: ["meta", "monitoring"]
-      +docs:
-        show: true
       schema: meta
 
 # Test configurations
 tests:
   +store_failures: true
   +severity: error
-
-# Documentation
-docs:
-  +show: true
 
 # Snapshots
 snapshots:
@@ -108,9 +95,7 @@ snapshots:
 # Seeds
 seeds:
   blockstream_dbt:
-    +schema: reference_data
-    +docs:
-      show: true
+    +schema: ref
 
 # Macros
 dispatch:

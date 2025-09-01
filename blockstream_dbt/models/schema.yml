@@ -18,7 +18,7 @@ sources:
             description: "JSON array of ticker data from API"
             tests:
               - not_null
-              - test_raw_response_not_blank
+              - raw_response_not_blank
         loaded_at_field: created_at
         freshness:
           warn_after: { count: 1, period: day }
@@ -77,6 +77,7 @@ models:
         description: "Total base asset volume traded in 24hr"
         tests:
           - not_null
+          - nonzero_volume
           - dbt_utils.accepted_range:
               min_value: 0
               inclusive: true
@@ -84,6 +85,7 @@ models:
       - name: quote_volume
         description: "Total quote asset (USD) volume traded in 24hr"
         tests:
+          - nonzero_volume
           - not_null
           - dbt_utils.accepted_range:
               min_value: 0
@@ -122,9 +124,9 @@ models:
     tests:
       - unique:
           column_name: "symbol || record_date"
-      - test_price_direction
-      - test_chronology
-      - test_trade_id_order
+      - price_direction
+      - chronology
+      - trade_id_order
 
   - name: int__ticker_rolling_metrics
     description: >
@@ -151,6 +153,8 @@ models:
 
       - name: volume_sum_7d
         description: "7-day cumulative trading volume"
+        tests:
+          - nonzero_volume
 
       - name: pct_change_7d
         description: "Price change vs 7-day average as percentage"
@@ -199,6 +203,8 @@ models:
 
       - name: volume_usd_24h
         description: "24-hour USD trading volume"
+        tests:
+          - nonzero_volume
 
       - name: market_cap_rank
         description: "Daily ranking by market activity"
