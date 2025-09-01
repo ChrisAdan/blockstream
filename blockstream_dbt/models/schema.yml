@@ -115,3 +115,123 @@ models:
         description: Number of trades in the 24hr window
         tests:
           - not_null
+  - name: int__ticker_rolling_metrics
+    description: >
+      Rolling statistics and derived indicators calculated from Binance US 24hr ticker data.
+      Includes multi-day rolling averages, sums, standard deviations, and custom metrics like true range and max drawdown.
+
+    columns:
+      - name: record_date
+        description: Snapshot date for the metrics
+        tests:
+          - not_null
+
+      - name: symbol
+        description: Trading pair symbol
+        tests:
+          - not_null
+
+{% set windows = [7, 14, 28] %}
+{% set metric_aggs = {
+    'last_price': ['avg', 'stddev'],
+    'high_price': ['avg', 'stddev'],
+    'low_price': ['avg', 'stddev'],
+    'volume': ['avg', 'sum', 'stddev'],
+    'quote_volume': ['avg', 'sum', 'stddev'],
+    'trade_count': ['avg', 'sum', 'stddev'],
+    'bid_qty': ['avg', 'stddev'],
+    'ask_qty': ['avg', 'stddev'],
+    'true_range': ['true_range'],
+    'max_drawdown': ['max_drawdown']
+} %}
+
+{% for metric, aggs in metric_aggs.items() %}
+  {% for window in windows %}
+    {% for agg in aggs %}
+      {% if agg in ['avg', 'sum', 'stddev'] %}
+      - name: {{ metric }}_{{ agg }}_{{ window }}d
+        description: {{ agg | capitalize }} of `{{ metric }}` over trailing {{ window }} days
+        tests:
+          - not_null
+      {% elif agg == 'true_range' %}
+      - name: true_range_{{ window }}d
+        description: >
+          True range over {{ window }} days.
+          Custom calculated as max(high - low, abs(high - prev_close), abs(low - prev_close))
+        tests:
+          - not_null
+      {% elif agg == 'max_drawdown' %}
+      - name: max_drawdown_{{ window }}d
+        description: >
+          Maximum drawdown (largest peak-to-trough drop) in `last_price` over {{ window }} days
+        tests:
+          - not_null
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+{% endfor %}
+
+      - name: pct_change_7d
+        description: Relative change in last price vs. 7-day average
+        tests:
+          - not_null
+
+      - name: liquidity_ratio
+        description: 7-day average volume divided by 7-day average last price
+        tests:
+          - not_null
+
+      - name: price_to_volume_ratio
+        description: Last price divided by current volume
+        tests:
+          - not_null
+
+      - name: bid_ask_spread
+        description: Difference between ask and bid prices
+        tests:
+          - not_null
+
+      - name: spread_pct
+        description: Bid-ask spread as a percent of last price
+        tests:
+          - not_null
+
+      - name: price_efficiency_ratio
+        description: Absolute price change divided by high-low price range average over 7 days
+        tests:
+          - not_null
+
+      - name: bid_ratio_7d
+        description: Bid quantity share of total order book depth over 7-day average
+        tests:
+          - not_null
+
+      - name: ask_ratio_7d
+        description: Ask quantity share of total order book depth over 7-day average
+        tests:
+          - not_null
+
+      - name: rank_price_increase_7d
+        description: Rank of percent price increase (7-day) among all symbols for that day (1 = highest)
+        tests:
+          - not_null
+
+      - name: rank_volatility_7d
+        description: Rank of price volatility (7-day stddev of last price) among all symbols for that day
+        tests:
+          - not_null
+
+      - name: rank_volume_7d
+        description: Rank of total traded volume (7-day sum) among all symbols for that day
+        tests:
+          - not_null
+
+      - name: rank_liquidity_7d
+        description: Rank of liquidity ratio among all symbols for that day
+        tests:
+          - not_null
+
+      - name: rank_trade_activity_7d
+        description: Rank of trade count (7-day sum) among all symbols for that day
+        tests:
+          - not_null
