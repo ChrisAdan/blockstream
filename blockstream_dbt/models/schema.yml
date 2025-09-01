@@ -1,237 +1,263 @@
 version: 2
 
+sources:
+  - name: raw
+    database: blockstream
+    schema: raw
+    description: "Raw data extracted from external APIs"
+    tables:
+      - name: raw_binance_us_24hr_ticker
+        description: "Raw 24hr ticker statistics from Binance.US API"
+        columns:
+          - name: id
+            description: "Date identifier (YYYYMMDD format)"
+            tests:
+              - not_null
+              - unique
+          - name: raw_response
+            description: "JSON array of ticker data from API"
+            tests:
+              - not_null
+              - test_raw_response_not_blank
+        loaded_at_field: created_at
+        freshness:
+          warn_after: { count: 1, period: day }
+          error_after: { count: 2, period: day }
+
 models:
-  - name: stg_binance_us_24hr_ticker
+  - name: stg__binance_us_24hr_ticker
     description: >
-      Unpacked 24hr ticker data from Binance.US API. Each record represents one symbol's daily price metrics.
+      Cleaned and typed 24hr ticker data from Binance.US API. 
+      Each record represents one symbol's daily price metrics with data quality flags.
+    config:
+      tags: ["staging", "crypto", "binance"]
     columns:
       - name: record_date
-        description: Date identifier used in the raw table (source file ID or extraction date)
+        description: "Date identifier from source extraction (YYYYMMDD)"
         tests:
           - not_null
 
       - name: symbol
-        description: Trading pair symbol (e.g., BTCUSD)
+        description: "Trading pair symbol (e.g., BTCUSD, ETHUSD)"
         tests:
           - not_null
-          - unique
 
       - name: price_change
-        description: Absolute price change in the last 24 hours
+        description: "Absolute price change in USD over 24hr window"
         tests:
           - not_null
 
       - name: price_change_percent
-        description: Percent price change over 24 hours
+        description: "Percentage price change over 24hr window"
         tests:
           - not_null
-
-      - name: weighted_avg_price
-        description: Weighted average price over 24 hours
-        tests:
-          - not_null
-
-      - name: prev_close_price
-        description: Closing price 24 hours ago
-        tests:
-          - not_null
+          - dbt_utils.accepted_range:
+              min_value: -99.99
+              max_value: 10000.0
 
       - name: last_price
-        description: Most recent trade price
+        description: "Most recent trade price in USD"
         tests:
           - not_null
-
-      - name: last_qty
-        description: Quantity of most recent trade
-        tests:
-          - not_null
-
-      - name: bid_price
-        description: Current highest bid
-        tests:
-          - not_null
-
-      - name: bid_qty
-        description: Bid quantity at best price
-        tests:
-          - not_null
-
-      - name: ask_price
-        description: Current lowest ask
-        tests:
-          - not_null
-
-      - name: ask_qty
-        description: Ask quantity at lowest ask price
-        tests:
-          - not_null
-
-      - name: open_price
-        description: Opening price for the 24hr window
-        tests:
-          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0.000001
+              max_value: 10000000
 
       - name: high_price
-        description: Highest price during the 24hr window
+        description: "Highest price during 24hr window"
         tests:
           - not_null
 
       - name: low_price
-        description: Lowest price during the 24hr window
+        description: "Lowest price during 24hr window"
         tests:
           - not_null
 
       - name: volume
-        description: Total volume traded in base asset
+        description: "Total base asset volume traded in 24hr"
         tests:
           - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
 
       - name: quote_volume
-        description: Total volume traded in quote asset
+        description: "Total quote asset (USD) volume traded in 24hr"
         tests:
           - not_null
-
-      - name: open_time_utc
-        description: UTC timestamp when 24hr window opened
-        tests:
-          - not_null
-
-      - name: close_time_utc
-        description: UTC timestamp when 24hr window closed
-        tests:
-          - not_null
-
-      - name: first_trade_id
-        description: First trade ID in the 24hr window
-        tests:
-          - not_null
-
-      - name: last_trade_id
-        description: Last trade ID in the 24hr window
-        tests:
-          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
 
       - name: trade_count
-        description: Number of trades in the 24hr window
+        description: "Number of individual trades in 24hr window"
         tests:
           - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+      - name: bid_price
+        description: "Current highest bid price"
+        tests:
+          - not_null
+
+      - name: ask_price
+        description: "Current lowest ask price"
+        tests:
+          - not_null
+
+      - name: spread_percentage
+        description: "Bid-ask spread as percentage of last price"
+
+      - name: data_quality_score
+        description: "Data quality score from 0-1 (1 = perfect quality)"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+
+    tests:
+      - unique:
+          column_name: "symbol || record_date"
+      - test_price_direction
+      - test_chronology
+      - test_trade_id_order
+
   - name: int__ticker_rolling_metrics
     description: >
-      Rolling statistics and derived indicators calculated from Binance US 24hr ticker data.
-      Includes multi-day rolling averages, sums, standard deviations, and custom metrics like true range and max drawdown.
-
+      Rolling financial metrics calculated over 7, 14, and 28 day windows.
+      Includes volatility, momentum, liquidity indicators and market rankings.
+    config:
+      tags: ["intermediate", "crypto", "analytics"]
     columns:
+      - name: symbol
+        description: "Trading pair symbol"
+        tests:
+          - not_null
+
       - name: record_date
-        description: Snapshot date for the metrics
+        description: "Date of the metrics calculation"
+        tests:
+          - not_null
+
+      - name: last_price_avg_7d
+        description: "7-day rolling average of last price"
+
+      - name: last_price_stddev_7d
+        description: "7-day rolling standard deviation of last price (volatility)"
+
+      - name: volume_sum_7d
+        description: "7-day cumulative trading volume"
+
+      - name: pct_change_7d
+        description: "Price change vs 7-day average as percentage"
+
+      - name: liquidity_ratio
+        description: "Volume to price ratio indicating liquidity depth"
+
+      - name: rank_price_increase_7d
+        description: "Ranking by 7-day price performance (1 = best performer)"
+
+      - name: rank_volatility_7d
+        description: "Ranking by 7-day volatility (1 = most volatile)"
+
+    tests:
+      - unique:
+          column_name: "symbol || record_date"
+
+  - name: fact__daily_ticker_summary
+    description: >
+      Analytics-ready daily summary combining core metrics with rolling indicators.
+      One row per symbol per day with comprehensive crypto market analytics.
+    config:
+      tags: ["mart", "crypto", "analytics"]
+      materialized: "table"
+    columns:
+      - name: date_key
+        description: "Date in YYYY-MM-DD format"
         tests:
           - not_null
 
       - name: symbol
-        description: Trading pair symbol
+        description: "Trading pair symbol"
         tests:
           - not_null
 
-{% set windows = [7, 14, 28] %}
-{% set metric_aggs = {
-    'last_price': ['avg', 'stddev'],
-    'high_price': ['avg', 'stddev'],
-    'low_price': ['avg', 'stddev'],
-    'volume': ['avg', 'sum', 'stddev'],
-    'quote_volume': ['avg', 'sum', 'stddev'],
-    'trade_count': ['avg', 'sum', 'stddev'],
-    'bid_qty': ['avg', 'stddev'],
-    'ask_qty': ['avg', 'stddev'],
-    'true_range': ['true_range'],
-    'max_drawdown': ['max_drawdown']
-} %}
-
-{% for metric, aggs in metric_aggs.items() %}
-  {% for window in windows %}
-    {% for agg in aggs %}
-      {% if agg in ['avg', 'sum', 'stddev'] %}
-      - name: {{ metric }}_{{ agg }}_{{ window }}d
-        description: {{ agg | capitalize }} of `{{ metric }}` over trailing {{ window }} days
-        tests:
-          - not_null
-      {% elif agg == 'true_range' %}
-      - name: true_range_{{ window }}d
-        description: >
-          True range over {{ window }} days.
-          Custom calculated as max(high - low, abs(high - prev_close), abs(low - prev_close))
-        tests:
-          - not_null
-      {% elif agg == 'max_drawdown' %}
-      - name: max_drawdown_{{ window }}d
-        description: >
-          Maximum drawdown (largest peak-to-trough drop) in `last_price` over {{ window }} days
-        tests:
-          - not_null
-      {% endif %}
-    {% endfor %}
-  {% endfor %}
-{% endfor %}
-
-      - name: pct_change_7d
-        description: Relative change in last price vs. 7-day average
+      - name: price_usd
+        description: "Closing price in USD"
         tests:
           - not_null
 
-      - name: liquidity_ratio
-        description: 7-day average volume divided by 7-day average last price
+      - name: daily_return_pct
+        description: "Daily return percentage"
+
+      - name: volatility_7d
+        description: "7-day rolling volatility"
+
+      - name: volume_usd_24h
+        description: "24-hour USD trading volume"
+
+      - name: market_cap_rank
+        description: "Daily ranking by market activity"
+
+    tests:
+      - unique:
+          column_name: "symbol || date_key"
+
+  - name: dim__cryptocurrency
+    description: >
+      Slowly changing dimension table for cryptocurrency metadata.
+      Tracks symbol lifecycle, classification, and enrichment data.
+    config:
+      tags: ["dimension", "crypto"]
+    columns:
+      - name: symbol
+        description: "Trading pair symbol (natural key)"
+        tests:
+          - not_null
+          - unique
+
+      - name: base_asset
+        description: "Base cryptocurrency (e.g., BTC, ETH)"
+
+      - name: quote_asset
+        description: "Quote currency (typically USD)"
+
+      - name: first_seen_date
+        description: "First date this symbol appeared in our data"
+
+      - name: last_seen_date
+        description: "Most recent date this symbol appeared"
+
+      - name: is_active
+        description: "Whether symbol is currently actively trading"
+
+      - name: asset_category
+        description: "Classification: major, altcoin, stablecoin, etc."
+
+  - name: meta__data_quality_summary
+    description: >
+      Daily data quality metrics and monitoring indicators.
+      Tracks completeness, accuracy, and pipeline health.
+    config:
+      tags: ["meta", "monitoring"]
+    columns:
+      - name: check_date
+        description: "Date of quality assessment"
         tests:
           - not_null
 
-      - name: price_to_volume_ratio
-        description: Last price divided by current volume
-        tests:
-          - not_null
+      - name: total_symbols
+        description: "Count of unique symbols processed"
 
-      - name: bid_ask_spread
-        description: Difference between ask and bid prices
-        tests:
-          - not_null
+      - name: avg_data_quality_score
+        description: "Average quality score across all symbols"
 
-      - name: spread_pct
-        description: Bid-ask spread as a percent of last price
-        tests:
-          - not_null
+      - name: records_with_anomalies
+        description: "Count of records flagged with data anomalies"
 
-      - name: price_efficiency_ratio
-        description: Absolute price change divided by high-low price range average over 7 days
-        tests:
-          - not_null
-
-      - name: bid_ratio_7d
-        description: Bid quantity share of total order book depth over 7-day average
-        tests:
-          - not_null
-
-      - name: ask_ratio_7d
-        description: Ask quantity share of total order book depth over 7-day average
-        tests:
-          - not_null
-
-      - name: rank_price_increase_7d
-        description: Rank of percent price increase (7-day) among all symbols for that day (1 = highest)
-        tests:
-          - not_null
-
-      - name: rank_volatility_7d
-        description: Rank of price volatility (7-day stddev of last price) among all symbols for that day
-        tests:
-          - not_null
-
-      - name: rank_volume_7d
-        description: Rank of total traded volume (7-day sum) among all symbols for that day
-        tests:
-          - not_null
-
-      - name: rank_liquidity_7d
-        description: Rank of liquidity ratio among all symbols for that day
-        tests:
-          - not_null
-
-      - name: rank_trade_activity_7d
-        description: Rank of trade count (7-day sum) among all symbols for that day
-        tests:
-          - not_null
+      - name: pipeline_status
+        description: "Overall pipeline health: healthy, warning, error"

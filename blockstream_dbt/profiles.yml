@@ -1,0 +1,25 @@
+blockstream_dbt:
+  outputs:
+    dev:
+      type: duckdb
+      path: "../data/blockstream.duckdb"
+      schema: analytics
+      threads: 4
+      settings:
+        memory_limit: "2GB"
+        max_memory: "4GB"
+        threads: 4
+        enable_progress_bar: true
+
+    prod:
+      type: duckdb
+      path: "../data/blockstream_prod.duckdb"
+      schema: analytics
+      threads: 6
+      settings:
+        memory_limit: "4GB"
+        max_memory: "8GB"
+        threads: 6
+        enable_progress_bar: false
+
+  target: dev

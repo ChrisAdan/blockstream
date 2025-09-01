@@ -1,36 +1,131 @@
-
-# Name your project! Project names should contain only lowercase characters
-# and underscores. A good package name should reflect your organization's
-# name or the intended use of these models
-name: 'blockstream_dbt'
-version: '1.0.0'
+name: "blockstream_dbt"
+version: "1.0.0"
+config-version: 2
 
 # This setting configures which "profile" dbt uses for this project.
-profile: 'blockstream_dbt'
+profile: "blockstream_dbt"
 
 # These configurations specify where dbt should look for different types of files.
-# The `model-paths` config, for example, states that models in this project can be
-# found in the "models/" directory. You probably won't need to change these!
 model-paths: ["models"]
 analysis-paths: ["analyses"]
 test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
+docs-paths: ["docs"]
 
-clean-targets:         # directories to be removed by `dbt clean`
+clean-targets:
   - "target"
   - "dbt_packages"
+  - "logs"
 
+# Global variables
+vars:
+  # Date handling
+  target_date: "{{ run_started_at.strftime('%Y%m%d') }}"
+  lookback_days: 90
 
-# Configuring models
-# Full documentation: https://docs.getdbt.com/docs/configuring-models
+  # Data quality thresholds
+  min_quality_score: 0.75
+  max_anomaly_rate: 0.1
 
-# In this example config, we tell dbt to build all models in the example/
-# directory as views. These settings can be overridden in the individual model
-# files using the `{{ config(...) }}` macro.
+  # Business logic
+  major_coins:
+    [
+      "BTCUSD",
+      "ETHUSD",
+      "ADAUSD",
+      "SOLUSD",
+      "DOTUSD",
+      "LINKUSD",
+      "AVAXUSD",
+      "MATICUSD",
+      "ATOMUSD",
+      "ALGOUSD",
+    ]
+  stablecoins: ["USDTUSD", "USDCUSD", "DAIUSD", "BUSDUSD"]
+
+# Model configurations
 models:
   blockstream_dbt:
-    # Config indicated by + and applies to all files under models/example/
-    example:
+    # Staging models
+    staging:
       +materialized: view
+      +tags: ["staging"]
+      +docs:
+        show: true
+      schema: staging
+
+    # Intermediate models
+    intermediate:
+      +materialized: view
+      +tags: ["intermediate"]
+      +docs:
+        show: true
+      schema: intermediate
+
+    # Marts (analytics-ready tables)
+    marts:
+      +materialized: table
+      +tags: ["mart"]
+      +docs:
+        show: true
+      +post-hook: "{{ log('Completed building mart: ' ~ this, info=true) }}"
+      schema: analytics
+
+      # Core business entities
+      core:
+        +tags: ["mart", "core"]
+
+      # Financial metrics
+      finance:
+        +tags: ["mart", "finance"]
+
+    # Monitoring and metadata
+    meta:
+      +materialized: table
+      +tags: ["meta", "monitoring"]
+      +docs:
+        show: true
+      schema: meta
+
+# Test configurations
+tests:
+  +store_failures: true
+  +severity: error
+
+# Documentation
+docs:
+  +show: true
+
+# Snapshots
+snapshots:
+  blockstream_dbt:
+    +target_schema: snapshots
+    +strategy: timestamp
+    +updated_at: last_updated
+
+# Seeds
+seeds:
+  blockstream_dbt:
+    +schema: reference_data
+    +docs:
+      show: true
+
+# Macros
+dispatch:
+  - macro_namespace: dbt
+    search_order: ["blockstream_dbt", "dbt"]
+
+# Hooks
+on-run-start:
+  - "{{ log('=== BlockStream dbt run started at ' ~ run_started_at.strftime('%Y-%m-%d %H:%M:%S UTC') ~ ' ===', info=true) }}"
+  - "CREATE SCHEMA IF NOT EXISTS {{ target.schema }}"
+  - "CREATE SCHEMA IF NOT EXISTS staging"
+  - "CREATE SCHEMA IF NOT EXISTS intermediate"
+  - "CREATE SCHEMA IF NOT EXISTS analytics"
+  - "CREATE SCHEMA IF NOT EXISTS meta"
+
+on-run-end:
+  - "{{ log('=== BlockStream dbt run completed successfully ===', info=true) }}"
+  - "{{ audit_run_results() }}"

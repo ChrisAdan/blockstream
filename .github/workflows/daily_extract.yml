@@ -1,58 +1,275 @@
-name: Daily Binance.US Extraction
+name: BlockStream Daily Pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      backfill_days:
+        description: "Number of days to backfill (0 for current day only)"
+        required: false
+        default: "0"
+        type: string
+      force_refresh:
+        description: "Force refresh of existing data"
+        required: false
+        default: false
+        type: boolean
   schedule:
-    - cron: "0 0 * * *" # Daily midnight UTC
+    - cron: "15 1 * * *" # Daily at 1:15 AM UTC (after market close)
+
+env:
+  DBT_PROFILES_DIR: ./blockstream_dbt
+  PYTHON_VERSION: "3.11"
 
 jobs:
-  extract:
+  extract-and-transform:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    outputs:
+      data_quality_status: ${{ steps.quality_check.outputs.status }}
+      records_processed: ${{ steps.extract.outputs.record_count }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download DuckDB artifact (if exists)
+      - name: Download previous DuckDB state
         uses: actions/download-artifact@v4
         with:
-          name: blockstream.duckdb
+          name: blockstream-database
           path: data/
-        continue-on-error: true # Ignore error if no artifact yet
+        continue-on-error: true
 
-      - name: Debug DB file presence
+      - name: Verify database state
+        id: db_check
         run: |
-          ls -lh data/
-          if [ -f data/blockstream.duckdb ]; then
-            echo "DB file found"
-            file data/blockstream.duckdb
+          if [ -f "data/blockstream.duckdb" ]; then
+            echo "Database found, size: $(du -h data/blockstream.duckdb)"
+            echo "db_exists=true" >> $GITHUB_OUTPUT
           else
-            echo "DB file NOT found — this is expected on first run"
+            echo "No existing database found - starting fresh"
+            echo "db_exists=false" >> $GITHUB_OUTPUT
+            mkdir -p data
           fi
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
       - name: Install dependencies
         run: |
-          python -m venv venv
-          source venv/bin/activate
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run extraction script
+      - name: Run data extraction
+        id: extract
+        env:
+          BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '0' }}
+          FORCE_REFRESH: ${{ github.event.inputs.force_refresh || 'false' }}
         run: |
-          source venv/bin/activate
+          echo "Starting extraction with backfill_days=$BACKFILL_DAYS"
+
+          # Run extraction script with environment variables
           python scripts/extract.py
 
-      - name: Verify DB file after extraction
-        run: |
-          ls -lh data/
-          file data/blockstream.duckdb
+          # Get record count for output
+          RECORD_COUNT=$(python -c "
+          import duckdb
+          con = duckdb.connect('data/blockstream.duckdb')
+          result = con.execute('SELECT COUNT(*) FROM raw.raw_binance_us_24hr_ticker').fetchone()[0]
+          print(result)
+          ")
 
-      - name: Upload updated DuckDB artifact
+          echo "record_count=$RECORD_COUNT" >> $GITHUB_OUTPUT
+          echo "Records in database: $RECORD_COUNT"
+
+      - name: Install dbt dependencies
+        working-directory: ./blockstream_dbt
+        run: |
+          dbt deps
+          dbt debug
+
+      - name: Run dbt models
+        working-directory: ./blockstream_dbt
+        run: |
+          echo "Running dbt transformations..."
+
+          # Run staging models first
+          dbt run --select "tag:staging" --vars '{"target_date": "'$(date +%Y%m%d)'"}'
+
+          # Run intermediate models
+          dbt run --select "tag:intermediate"
+
+          # Run marts/analytics models
+          dbt run --select "tag:mart"
+
+          # Run monitoring models
+          dbt run --select "tag:meta"
+
+      - name: Run dbt tests
+        working-directory: ./blockstream_dbt
+        run: |
+          echo "Running data quality tests..."
+          dbt test --store-failures
+        continue-on-error: true
+
+      - name: Data quality assessment
+        id: quality_check
+        run: |
+          # Query data quality metrics
+          QUALITY_RESULTS=$(python -c "
+          import duckdb
+          import json
+
+          con = duckdb.connect('data/blockstream.duckdb')
+
+          # Get latest quality summary
+          result = con.execute('''
+              SELECT 
+                  pipeline_status,
+                  avg_data_quality_score,
+                  records_with_anomalies,
+                  total_records,
+                  missing_major_symbols
+              FROM analytics.meta__data_quality_summary 
+              ORDER BY check_date DESC 
+              LIMIT 1
+          ''').fetchone()
+
+          if result:
+              status_data = {
+                  'status': result[0],
+                  'avg_quality': float(result[1]) if result[1] else 0,
+                  'anomalies': result[2],
+                  'total_records': result[3],
+                  'missing_symbols': result[4]
+              }
+              print(json.dumps(status_data))
+          else:
+              print(json.dumps({'status': 'Error', 'message': 'No quality data found'}))
+          ")
+
+          echo "quality_results<<EOF" >> $GITHUB_OUTPUT
+          echo "$QUALITY_RESULTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Extract status for job output
+          STATUS=$(echo "$QUALITY_RESULTS" | python -c "import sys, json; print(json.load(sys.stdin).get('status', 'Unknown'))")
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: Generate documentation
+        working-directory: ./blockstream_dbt
+        run: |
+          dbt docs generate
+
+      - name: Archive logs and artifacts
+        if: always()
+        run: |
+          mkdir -p pipeline_artifacts
+
+          # Copy dbt artifacts
+          cp blockstream_dbt/target/manifest.json pipeline_artifacts/ 2>/dev/null || true
+          cp blockstream_dbt/target/run_results.json pipeline_artifacts/ 2>/dev/null || true
+          cp blockstream_dbt/target/catalog.json pipeline_artifacts/ 2>/dev/null || true
+
+          # Database stats
+          python -c "
+          import duckdb
+          con = duckdb.connect('data/blockstream.duckdb')
+          with open('pipeline_artifacts/db_stats.txt', 'w') as f:
+              f.write('=== Database Statistics ===\\n')
+              for table in ['raw.raw_binance_us_24hr_ticker', 'analytics.fact__daily_ticker_summary']:
+                  try:
+                      count = con.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+                      f.write(f'{table}: {count} rows\\n')
+                  except:
+                      f.write(f'{table}: Not found\\n')
+          " || echo "Could not generate db stats"
+
+      - name: Upload DuckDB database
         uses: actions/upload-artifact@v4
         with:
-          name: blockstream.duckdb
-          path: data/
+          name: blockstream-database
+          path: data/blockstream.duckdb
+          retention-days: 30
+
+      - name: Upload pipeline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts-${{ github.run_id }}
+          path: pipeline_artifacts/
+          retention-days: 7
+
+  notify-results:
+    needs: extract-and-transform
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Prepare notification
+        id: notification
+        run: |
+          STATUS="${{ needs.extract-and-transform.result }}"
+          QUALITY_STATUS="${{ needs.extract-and-transform.outputs.data_quality_status }}"
+          RECORDS="${{ needs.extract-and-transform.outputs.records_processed }}"
+
+          if [ "$STATUS" == "success" ] && [ "$QUALITY_STATUS" == "Healthy" ]; then
+            EMOJI="✅"
+            COLOR="good"
+            MESSAGE="Pipeline completed successfully"
+          elif [ "$STATUS" == "success" ] && [ "$QUALITY_STATUS" == "Warning" ]; then
+            EMOJI="⚠️"
+            COLOR="warning"  
+            MESSAGE="Pipeline completed with data quality warnings"
+          else
+            EMOJI="❌"
+            COLOR="danger"
+            MESSAGE="Pipeline failed or has data quality issues"
+          fi
+
+          echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+          echo "message=$MESSAGE" >> $GITHUB_OUTPUT
+          echo "records=$RECORDS" >> $GITHUB_OUTPUT
+
+      - name: Create summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # BlockStream Pipeline Results
+
+          ## Status: ${{ steps.notification.outputs.emoji }} ${{ steps.notification.outputs.message }}
+
+          - **Records Processed**: ${{ steps.notification.outputs.records }}
+          - **Data Quality Status**: ${{ needs.extract-and-transform.outputs.data_quality_status }}
+          - **Workflow Duration**: $(( ${{ github.event.workflow_run.updated_at }} - ${{ github.event.workflow_run.created_at }} )) seconds
+          - **Run ID**: ${{ github.run_id }}
+
+          ## Next Steps
+          - View [pipeline artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - Check data quality dashboard (when available)
+          - Review any failing dbt tests
+          EOF
+
+      # Optional: Slack notification (uncomment and configure if needed)
+      # - name: Slack notification
+      #   if: failure() || needs.extract-and-transform.outputs.data_quality_status != 'Healthy'
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: custom
+      #     custom_payload: |
+      #       {
+      #         "attachments": [{
+      #           "color": "${{ steps.notification.outputs.color }}",
+      #           "title": "BlockStream Pipeline Alert",
+      #           "text": "${{ steps.notification.outputs.message }}",
+      #           "fields": [
+      #             {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+      #             {"title": "Records", "value": "${{ steps.notification.outputs.records }}", "short": true}
+      #           ]
+      #         }]
+      #       }
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
